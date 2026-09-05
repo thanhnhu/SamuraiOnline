@@ -1,0 +1,53 @@
+[Unit]
+Description=Samurai Shodown matchmaking lobby
+Documentation=https://github.com/thanhnhu/SamuraiOnline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=samurai
+Group=samurai
+EnvironmentFile=/etc/default/samurai-lobby
+ExecStart=/usr/local/bin/samurai-lobby \
+    -addr ${LOBBY_ADDR} \
+    -relay-addr ${LOBBY_RELAY_ADDR} \
+    -relay-tcp-addr ${LOBBY_RELAY_TCP_ADDR} \
+    -relay-host ${LOBBY_RELAY_HOST}
+Restart=on-failure
+RestartSec=5s
+
+# The service reads nothing and writes nothing: it keeps all state in memory.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+# Sized against the measured footprint: ~10 MB resident with 200 sessions and
+# 100 rooms live. The cap turns a leak into a restart instead of an OOM that
+# takes the whole container down.
+MemoryMax=128M
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

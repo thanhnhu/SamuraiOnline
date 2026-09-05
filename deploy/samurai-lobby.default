@@ -1,0 +1,11 @@
+# Settings for samurai-lobby.service.
+#
+# LOBBY_RELAY_HOST is the address clients are told to send UDP at. It must be
+# what the outside world can reach, not the container's own address: get this
+# wrong and hole punching silently never works. Use the public IP, or a domain
+# that resolves to it. On a LAN-only test, the server's LAN address is right.
+LOBBY_RELAY_HOST=203.0.113.1
+
+LOBBY_ADDR=:8080
+LOBBY_RELAY_ADDR=:8081
+LOBBY_RELAY_TCP_ADDR=:8081
