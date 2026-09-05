@@ -1,0 +1,75 @@
+# Dependencies
+go/*
+vendor/*
+
+# Runtime
+*.log
+*.cmd
+*.bat
+/*.sh
+!build/**/*.sh
+*.png
+save/*
+Ikemen_GO.exe
+Ikemen_GO_Linux
+Ikemen_GO_MacOS
+Ikemen_GO_x86.exe
+Ikemen_GO.command
+external/script/.idea/*
+*.manifest
+resources/*
+
+# Ikemen_GO-Elecbyte-Screenpack
+ScreenpackLicense.txt
+# Upstream keeps the runtime assets in the Ikemen-GO-Screenpack repository and
+# excludes them here. This fork commits them instead: they are CC BY 3.0 and
+# CC BY-NC 3.0, and a self-contained clone that builds and runs is worth more
+# to this project than a small repository. See LICENCE.txt for attribution.
+#
+# Characters remain excluded. jubei and jubei2 are generated from Samurai
+# Shodown artwork, which is not ours to redistribute; run setup.sh --chars.
+chars/*
+!chars/kfm/
+!chars/kfm720/
+!chars/kfm_zaxis/
+!chars/kfm_zss/
+data/big/*
+debug/*
+
+external/mods/*
+
+# Temp
+src/lua_triggers.go
+external/script/wip/*
+
+# IDE Files
+.vscode/*
+.vs/*
+.idea/*
+
+# Android build outputs (generated)
+bin/*.apk
+bin/libmain.so
+bin/libmain.h
+lib/*.so
+lib/*.so.*
+build/android-apk/
+
+# Binaries
+build/android-deps/
+build/libxmp-src/
+build/libvpx-src/
+build/sdl2-src/
+build/ffmpeg-src/
+build/ffmpeg/
+build/delaylib/
+build/winres/
+
+# macOS bundle by local make
+/I.K.E.M.E.N-Go.app/
+
+# Compilation files
+*.syso
+*.exe
+*.dll
+external/script/version

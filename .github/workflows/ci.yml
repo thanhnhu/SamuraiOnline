@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The tools and the server are plain Go and build anywhere. The engine needs
+  # cgo plus SDL and ffmpeg, so it gets its own job to keep failures readable.
+  tools:
+    name: Lobby and tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          # These modules have no external dependencies, so they have no
+          # go.sum. setup-go fails outright when its cache path matches
+          # nothing, so caching is off rather than pointed at absent files.
+          cache: false
+
+      - name: Lobby
+        working-directory: SamuraiLobby
+        run: |
+          go vet ./...
+          go test ./... -count=1 -race
+
+      - name: sprtool
+        working-directory: SamuraiTools/sprtool
+        run: |
+          go vet ./...
+          go build ./...
+
+      # chargen's tests need the X-Mat Studio sources, which are not in this
+      # repo, so they skip themselves. Vet and build still catch real breakage.
+      - name: chargen
+        working-directory: SamuraiTools/chargen
+        run: |
+          go vet ./...
+          go build ./...
+          go test ./... -count=1
+
+  engine:
+    name: Engine
+    runs-on: ubuntu-latest
+    # Ikemen's video layer (reisen) uses AVBufferSrcParameters.color_space,
+    # which FFmpeg only added in 7.1. Ubuntu runners still ship 6.1, so the
+    # build happens in a Debian trixie container instead. Upstream solves this
+    # by compiling FFmpeg from source, which is far too slow for every push.
+    container: debian:trixie
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git pkg-config nasm yasm build-essential \
+            libxmp-dev libsdl2-dev libgtk-3-dev \
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswresample-dev libswscale-dev libavfilter-dev
+
+      - name: Record FFmpeg version
+        run: pkg-config --modversion libavfilter libavcodec
+
+      - uses: actions/checkout@v4
+
+      # The workspace is owned by the runner user but this job runs as root in
+      # the container, so git refuses to read the repo and `go build` fails
+      # while stamping VCS info into the binary.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: Ikemen-GO/go.sum
+
+      - name: Build
+        working-directory: Ikemen-GO
+        env:
+          GOFLAGS: -mod=mod
+          GOEXPERIMENT: arenas
+          CGO_ENABLED: '1'
+        run: |
+          go build -o Ikemen_GO_Linux ./src
+          # netcheck must stay free of cgo, or it stops being copyable onto
+          # machines that cannot build the engine.
+          CGO_ENABLED=0 go build -o netcheck ./cmd/netcheck
+
+      # Character tests skip when the generated characters are absent, which is
+      # the normal case here since they are derived from game art and ignored.
+      - name: Test
+        working-directory: Ikemen-GO
+        env:
+          GOFLAGS: -mod=mod
+          GOEXPERIMENT: arenas
+          CGO_ENABLED: '1'
+        run: go test ./src/... -count=1 -vet=off
+
+  # This repo must ship engine and tools only; the game itself is still sold by
+  # SNK. A commit that adds game data should fail loudly rather than be noticed
+  # months later.
+  assets:
+    name: No game assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for copyrighted game data
+        run: |
+          set -eu
+          found=$(git ls-files \
+            '*.SPR' '*.BGR' '*.PRG' '*.FIX' '*.GID' \
+            'Game/*' 'Decompiled code/*' || true)
+          if [ -n "$found" ]; then
+            echo "::error::Game data is tracked in git. It must not be published."
+            echo "$found"
+            exit 1
+          fi
+          echo "No game data tracked."

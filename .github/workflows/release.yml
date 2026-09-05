@@ -1,0 +1,183 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux build
+    runs-on: ubuntu-latest
+    # Same reason as ci.yml: reisen needs FFmpeg 7.1 headers, which Ubuntu
+    # runners do not have.
+    container: debian:trixie
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git pkg-config nasm yasm build-essential \
+            libxmp-dev libsdl2-dev libgtk-3-dev \
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswresample-dev libswscale-dev libavfilter-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: Ikemen-GO/go.sum
+
+      - name: Build
+        env:
+          GOFLAGS: -mod=mod
+          GOEXPERIMENT: arenas
+          CGO_ENABLED: '1'
+        run: |
+          (cd Ikemen-GO && go build -o Ikemen_GO_Linux ./src)
+          (cd SamuraiTools/chargen && go build -o chargen .)
+          (cd SamuraiLobby && go build -o samurai-lobby .)
+
+      # Characters are deliberately absent: they are generated from Samurai
+      # Shodown artwork. The bundled chargen turns the X-Mat Studio sources
+      # into them, which is what setup.sh --chars does from a clone.
+      - name: Assemble bundle
+        run: |
+          set -eu
+          out=samurai-online-linux-amd64
+          mkdir -p "$out"
+          cp -r Ikemen-GO/Ikemen_GO_Linux Ikemen-GO/data Ikemen-GO/chars \
+                Ikemen-GO/font Ikemen-GO/stages Ikemen-GO/sound \
+                Ikemen-GO/video Ikemen-GO/external "$out/"
+          cp SamuraiTools/chargen/chargen SamuraiLobby/samurai-lobby "$out/"
+          cp README.md ARCHITECTURE.md "$out/"
+          cp Ikemen-GO/LICENCE.txt "$out/LICENCE-ikemen.txt" || true
+          tar -czf "$out.tar.gz" "$out"
+          echo "bundle=$out.tar.gz" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: samurai-online-linux-amd64
+          path: ${{ env.bundle }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.bundle }}
+          body: |
+            Linux x86-64 build. Extract and run `./Ikemen_GO_Linux`.
+
+            Characters are not included: they are generated from Samurai
+            Shodown artwork, which is not ours to redistribute. To add them,
+            clone https://github.com/AaronGCProg/SamuraiShodown-XMatStudio and
+            run the bundled `chargen` over its `ModulePlayer.cpp`.
+
+            Requires FFmpeg 7.1 or newer at runtime.
+
+  windows:
+    name: Windows build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      # build.sh Win64 needs a MinGW toolchain. It compiles FFmpeg 7.1 from
+      # source and copies the runtime DLLs next to the exe, so the bundle is
+      # self-contained and no FFmpeg install is needed on the player's machine.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          path-type: inherit
+          install: >-
+            git
+            make
+            diffutils
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-bzip2
+            mingw-w64-x86_64-nasm
+            mingw-w64-x86_64-yasm
+            mingw-w64-x86_64-tools-git
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-libxmp
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: Ikemen-GO/go.sum
+
+      - name: Build the engine
+        shell: 'msys2 {0}'
+        env:
+          BUILD_FFMPEG: 'yes'
+          GOOS: windows
+          GOARCH: amd64
+          GOFLAGS: -mod=mod
+          GOEXPERIMENT: arenas
+          CGO_ENABLED: '1'
+        run: |
+          cd Ikemen-GO
+          go mod download
+          ./build/build.sh Win64
+
+      - name: Build the tools
+        shell: 'msys2 {0}'
+        env:
+          GOFLAGS: -mod=mod
+          CGO_ENABLED: '0'
+        run: |
+          (cd SamuraiTools/chargen && go build -o chargen.exe .)
+          (cd SamuraiLobby && go build -o samurai-lobby.exe .)
+
+      - name: Assemble bundle
+        shell: 'msys2 {0}'
+        run: |
+          set -eu
+          out=samurai-online-windows-amd64
+          mkdir -p "$out"
+          # build.sh drops the exe and its DLLs in Ikemen-GO/bin.
+          cp -r Ikemen-GO/bin/. "$out/"
+          cp -r Ikemen-GO/data Ikemen-GO/chars Ikemen-GO/font \
+                Ikemen-GO/stages Ikemen-GO/sound Ikemen-GO/video \
+                Ikemen-GO/external "$out/"
+          cp SamuraiTools/chargen/chargen.exe SamuraiLobby/samurai-lobby.exe "$out/"
+          cp README.md ARCHITECTURE.md "$out/"
+          cp Ikemen-GO/LICENCE.txt "$out/LICENCE-ikemen.txt" || true
+          echo "bundle=$out" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: samurai-online-windows-amd64
+          path: ${{ env.bundle }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: 'msys2 {0}'
+        run: |
+          set -eu
+          7z a -tzip "${{ env.bundle }}.zip" "${{ env.bundle }}" || \
+            (cd "${{ env.bundle }}" && zip -r "../${{ env.bundle }}.zip" .)
+
+      - name: Upload the archive
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.bundle }}.zip
+          body: |
+            Windows x86-64 build. Unzip and run `Ikemen_GO.exe`.
+
+            Needs a GPU that can do OpenGL 3.3. A virtual machine without GPU
+            passthrough usually cannot, and the engine will refuse to start;
+            dropping Mesa3D's `opengl32.dll` beside the exe works around that
+            in software, slowly.
+
+            Characters are not included, for the same reason as the Linux
+            build: they are generated from Samurai Shodown artwork.
